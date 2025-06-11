@@ -21,9 +21,9 @@
     "hint": "每次请求失败后最多重试几次",
     "default": 3
   },
-  "notify_group_id": {
-    "description": "推送通知的群ID（可选）",
-    "type": "string",
-    "hint": "如需推送到指定群，可填写群ID，否则留空"
+  "notify_sessions": {
+    "description": "需要通知的session列表",
+    "type": "list",
+    "hint": "不建议手动配置，通过在对应会话中 /steam on|/steam off 管理"
   }
 }

@@ -26,8 +26,8 @@ class SteamStatusMonitor(Star):
         self.context = context
         self.last_states = {}
         self.start_play_times = {}
-        self.running = False
-        self.notify_session = None
+        self.running = True
+        self.notify_sessions = []
         self._game_name_cache = {}
         # 统一使用 AstrBot 配置系统
         self.config = config or {}
@@ -45,7 +45,8 @@ class SteamStatusMonitor(Star):
         self.STEAM_IDS = self.config.get('steam_ids', [])
         self.POLL_INTERVAL = self.config.get('poll_interval_sec', 10)
         self.RETRY_TIMES = self.config.get('retry_times', 3)  # 新增：重试次数
-        self.GROUP_ID = self.config.get('notify_group_id', None)
+        self.notify_sessions = self.config.get('notify_sessions', [])
+
         self.game_log = GameLogManager()  # 新增：游戏日志管理器
         # 启动保活心跳任务（每30分钟调用一次 get_status）
         asyncio.create_task(self.keep_alive_task())
@@ -206,7 +207,8 @@ class SteamStatusMonitor(Star):
                     logger.info(f"{msg}，推送通知")
                     try:
                         msg_chain = MessageChain([Plain(msg)])
-                        await self.context.send_message(self.notify_session, msg_chain)
+                        for notify_session in self.notify_sessions:
+                            await self.context.send_message(notify_session, msg_chain)
                     except Exception as e:
                         logger.error(f"推送结束游戏消息失败: {e}")
                     # 仅当游玩时间大于10分钟才记录日志
@@ -223,9 +225,10 @@ class SteamStatusMonitor(Star):
                 self.start_play_times[sid] = now
                 # 推送新游戏开始
                 try:
-                    if self.notify_session:
+                    if self.has_notify_sessions():
                         msg_chain = MessageChain([Plain(f"🟢 {name} 开始玩 {zh_game_name} 了！")])
-                        await self.context.send_message(self.notify_session, msg_chain)
+                        for notify_session in self.notify_sessions:
+                            await self.context.send_message(notify_session, msg_chain)
                     else:
                         logger.error("未设置推送会话，无法发送消息")
                 except Exception as e:
@@ -234,9 +237,10 @@ class SteamStatusMonitor(Star):
             elif gameid and (not prev or not prev.get('gameid')):
                 logger.info(f"{name} 开始玩 {zh_game_name} 了，推送通知")
                 try:
-                    if self.notify_session:
+                    if self.has_notify_sessions():
                         msg_chain = MessageChain([Plain(f"🟢 {name} 开始玩 {zh_game_name} 了！")])
-                        await self.context.send_message(self.notify_session, msg_chain)
+                        for notify_session in self.notify_sessions:
+                            await self.context.send_message(notify_session, msg_chain)
                     else:
                         logger.error("未设置推送会话，无法发送消息")
                 except Exception as e:
@@ -248,7 +252,7 @@ class SteamStatusMonitor(Star):
                 prev_game = prev.get('gameextrainfo')
                 zh_prev_game_name = await self.get_chinese_game_name(prev_gameid, prev_game) if prev_gameid else (prev_game or "未知游戏")
                 try:
-                    if self.notify_session:
+                    if self.has_notify_sessions():
                         if sid in self.start_play_times:
                             duration_min = (now - self.start_play_times[sid]) / 60
                             if duration_min < 60:
@@ -290,7 +294,8 @@ class SteamStatusMonitor(Star):
                             logger.info(f"{msg}，推送通知")
                             try:
                                 msg_chain = MessageChain([Plain(msg)])
-                                await self.context.send_message(self.notify_session, msg_chain)
+                                for notify_session in self.notify_sessions:
+                                    await self.context.send_message(notify_session, msg_chain)
                             except Exception as e:
                                 logger.error(f"推送退出游戏消息失败: {e}")
                             # 仅当游玩时间大于10分钟才记录日志
@@ -309,7 +314,8 @@ class SteamStatusMonitor(Star):
                             logger.info(f"{msg}，推送通知")
                             try:
                                 msg_chain = MessageChain([Plain(msg)])
-                                await self.context.send_message(self.notify_session, msg_chain)
+                                for notify_session in self.notify_sessions:
+                                    await self.context.send_message(notify_session, msg_chain)
                             except Exception as e:
                                 logger.error(f"推送退出游戏消息失败: {e}")
                             # 这里没有游玩时长，不记录日志
@@ -333,7 +339,7 @@ class SteamStatusMonitor(Star):
 
     @filter.command("steam on")
     async def steam_on(self, event: AstrMessageEvent):
-        '''手动启动Steam状态监控轮询'''
+        '''把当前群加入通知列表'''
         if not self.API_KEY:
             yield event.plain_result("未配置 Steam API Key，请先在插件配置中填写 steam_api_key。")
             return
@@ -343,12 +349,15 @@ class SteamStatusMonitor(Star):
                 "或使用 /steam addid [SteamID] 添加要监控的玩家。"
             )
             return
-        if self.running:
+
+        if event.unified_msg_origin in self.notify_sessions:
             yield event.plain_result("Steam监控已在运行。")
             return
-        self.running = True
-        self.notify_session = event.unified_msg_origin
 
+        self.notify_sessions.append(event.unified_msg_origin)
+        self.config['notify_sessions'] = self.notify_sessions
+        if hasattr(self.config, "save_config"):
+            self.config.save_config()
         # 启动时输出一次 steam list 风格的当前状态，不推送“开始玩游戏了”通知
         msg_lines = []
         now = int(time.time())
@@ -428,7 +437,7 @@ class SteamStatusMonitor(Star):
         self.STEAM_IDS = self.config.get('steam_ids', [])
         self.POLL_INTERVAL = self.config.get('poll_interval_sec', 10)
         self.RETRY_TIMES = self.config.get('retry_times', 3)
-        self.GROUP_ID = self.config.get('notify_group_id', None)
+        self.notify_sessions = self.config.get('notify_sessions', [])
         # 保存配置（如支持）
         if hasattr(self.config, "save_config"):
             self.config.save_config()
@@ -466,8 +475,7 @@ class SteamStatusMonitor(Star):
         '''清除所有状态并初始化（重启插件用）'''
         self.last_states.clear()
         self.start_play_times.clear()
-        self.running = False
-        self.notify_session = None
+        self.notify_sessions = []
         self._game_name_cache.clear()
         yield event.plain_result("Steam状态监控插件已重置，所有状态已清空。")
 
@@ -518,18 +526,25 @@ class SteamStatusMonitor(Star):
 
     @filter.command("steam off")
     async def steam_off(self, event: AstrMessageEvent):
-        '''停止Steam状态监控轮询'''
-        if not self.running:
+        '''把当前群移除通知列表'''
+        try:
+            self.notify_sessions.remove(event.unified_msg_origin)
+            self.config['notify_sessions'] = self.notify_sessions
+            if hasattr(self.config, "save_config"):
+                self.config.save_config()
+            yield event.plain_result("Steam状态监控已停止。")
+        except ValueError:
             yield event.plain_result("Steam监控未在运行。")
             return
-        self.running = False
-        yield event.plain_result("Steam状态监控已停止。")
 
     async def poll_loop(self):
         '''定时轮询Steam状态变化'''
-        while self.running:
+        while self.running and has_notify_sessions:
             try:
                 await self.check_status_change()
             except Exception as e:
                 logger.error(f"轮询Steam状态时发生异常: {e}")
             await asyncio.sleep(self.POLL_INTERVAL)
+
+    def has_notify_sessions(self):
+        return bool(self.notify_sessions) and any(isinstance(x, str) and x.strip() for x in self.notify_sessions)

@@ -3,7 +3,7 @@ import ssl
 
 async def gen_asyncio_get_param(domain, path):
     ip = '104.68.104.163'
-    url = (f"https://{ip}", {path})
+    url = f"https://{ip}{path}"
     headers = {"Host": domain}
     return (url, headers)
 

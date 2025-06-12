@@ -2,6 +2,7 @@ import os
 import json
 import asyncio
 from datetime import datetime, timedelta
+from .steam_api_util import gen_asyncio_get_param  # 新增导入
 
 class GameLogManager:
     def __init__(self):
@@ -80,12 +81,9 @@ async def handle_steam_log(self, event):
                 # 只在本地缓存没有时才查API
                 if sid not in getattr(self, "_steam_log_api_checked", set()):
                     try:
-                        url = (
-                            "https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/"
-                            f"?key={self.API_KEY}&steamids={sid}"
-                        )
                         import httpx
-                        resp = await httpx.AsyncClient(timeout=10).get(url)
+                        resp = await httpx.AsyncClient(timeout=10).get(*await gen_asyncio_get_param("api.steampowered.com",
+                                                                        f"/ISteamUser/GetPlayerSummaries/v2/?key={self.API_KEY}&steamids={sid}"))
                         data = resp.json()
                         players = data.get('response', {}).get('players', [])
                         if players and players[0].get('personaname'):

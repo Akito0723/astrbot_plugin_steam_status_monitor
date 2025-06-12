@@ -17,8 +17,8 @@ from .steam_list import handle_steam_list  # 新增导入
     "steam_status_monitor",
     "Maoer",
     "Steam状态监控插件",
-    "1.0.0",
-    "https://github.com/Maoer233/steam_status_monitor"
+    "1.0.1",
+    "https://github.com/Akito0723/astrbot_plugin_steam_status_monitor"
 )
 class SteamStatusMonitor(Star):
     def __init__(self, context: Context, config=None):
@@ -28,6 +28,7 @@ class SteamStatusMonitor(Star):
         self.start_play_times = {}
         self.running = True
         self.notify_sessions = []
+        self._poll_task = None
         self._game_name_cache = {}
         # 统一使用 AstrBot 配置系统
         self.config = config or {}
@@ -50,6 +51,8 @@ class SteamStatusMonitor(Star):
         self.game_log = GameLogManager()  # 新增：游戏日志管理器
         # 启动保活心跳任务（每30分钟调用一次 get_status）
         asyncio.create_task(self.keep_alive_task())
+        if self.running and self.has_notify_sessions() and self._poll_task is None:
+            self._poll_task = asyncio.create_task(self.poll_loop())
 
     async def keep_alive_task(self):
         '''定时调用 get_status 保持NapCat连接活跃，减少掉线概率'''
@@ -358,6 +361,11 @@ class SteamStatusMonitor(Star):
         self.config['notify_sessions'] = self.notify_sessions
         if hasattr(self.config, "save_config"):
             self.config.save_config()
+
+        if self._poll_task is None:
+            # 启动定时轮询Steam状态变化
+            self._poll_task = asyncio.create_task(self.poll_loop())
+
         # 启动时输出一次 steam list 风格的当前状态，不推送“开始玩游戏了”通知
         msg_lines = []
         now = int(time.time())
@@ -385,9 +393,9 @@ class SteamStatusMonitor(Star):
                 msg_lines.append(f"⚪️ {name} 离线\n上次在线 {hours_ago:.1f} 小时前\n")
             else:
                 msg_lines.append(f"⚪️ {name} 离线\n")
+
         yield event.plain_result("".join(msg_lines))
         yield event.plain_result("Steam状态监控启动完成喔！ヾ(≧ω≦)ゞ")
-        asyncio.create_task(self.poll_loop())
 
     @filter.command("steam list")
     async def steam_list(self, event: AstrMessageEvent):
@@ -477,6 +485,8 @@ class SteamStatusMonitor(Star):
         self.start_play_times.clear()
         self.notify_sessions = []
         self._game_name_cache.clear()
+        self._poll_task.cancel()
+        self._poll_task = None
         yield event.plain_result("Steam状态监控插件已重置，所有状态已清空。")
 
     @filter.command("steam help")
@@ -535,16 +545,24 @@ class SteamStatusMonitor(Star):
             yield event.plain_result("Steam状态监控已停止。")
         except ValueError:
             yield event.plain_result("Steam监控未在运行。")
-            return
+        # 如果没有需要通知的session,关闭轮询
+        if self._poll_task is not None and not self.has_notify_sessions():
+            # 关闭定时轮询Steam状态变化
+            self._poll_task.cancel()
+            self._poll_task = None
 
     async def poll_loop(self):
         '''定时轮询Steam状态变化'''
-        while self.running and has_notify_sessions:
-            try:
-                await self.check_status_change()
-            except Exception as e:
-                logger.error(f"轮询Steam状态时发生异常: {e}")
-            await asyncio.sleep(self.POLL_INTERVAL)
+        try:
+            while self.running and self.has_notify_sessions():
+                try:
+                    await self.check_status_change()
+                except Exception as e:
+                    logger.error(f"轮询Steam状态时发生异常: {e}")
+                await asyncio.sleep(self.POLL_INTERVAL)
+        except asyncio.CancelledError:
+            logger.info("轮询Steam状态被取消")
+            return
 
     def has_notify_sessions(self):
         return bool(self.notify_sessions) and any(isinstance(x, str) and x.strip() for x in self.notify_sessions)

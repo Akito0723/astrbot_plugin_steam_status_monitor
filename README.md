@@ -7,7 +7,7 @@
 1. 将插件放置在`\AstrBot\data\plugins`目录下
 2. 在AstrBot网页后台的配置中填写（[Steam Web API](https://steamcommunity.com/dev/apikey)）
 3. 使用 `/steam addid [SteamID]`指令，或在配置中添加需要监控的64位Steam玩家ID
-4. 使用 `/steam on`指令开启监控 
+4. 使用 `/steam on`指令在当前会话中开启监控 
 
 
 ## 详细说明
@@ -20,10 +20,11 @@
    - `steam_ids`：要监控的 SteamID（64位数字字符串），可填写多个
    - `poll_interval_sec`：轮询间隔（秒），默认60秒
    - `retry_times`：API请求失败时的重试次数
-   - `notify_group_id`：如需推送到指定群，可填写群ID，否则留空--（不建议使用此功能）
+   - `notify_sessions`：需要通知的session列表, 如需推送到指定群, 可填写`aiocqhttp:GroupMessage:群号`, 不建议手动配置, 通过在对应会话中 `/steam on` `/steam off` 管理, 可填写多个
 
 3. **常用指令**
-   - `/steam on` 启动监控
+   - `/steam on` 启动监控(当前会话)
+   - `/steam off` 关闭监控(当前会话)
    - `/steam list` 查看所有玩家状态
    - `/steam addid [SteamID]` 添加监控对象
    - `/steam delid [SteamID]` 删除监控对象

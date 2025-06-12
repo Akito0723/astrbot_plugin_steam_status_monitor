@@ -1,7 +1,7 @@
 import time
 import httpx
 from astrbot.api.message_components import Plain, Image
-from .steam_api_util import gen_asyncio_get_param  # 新增导入
+from .steam_api_util import gen_asyncio_get_param, gen_transport  # 新增导入
 
 async def handle_openbox(self, event, steamid: str):
     '''查询并格式化展示指定SteamID的全部API返回信息（中文字段名，头像图片附加，位置ID合并，状态字段直观显示）'''
@@ -45,8 +45,12 @@ async def handle_openbox(self, event, steamid: str):
         2: "所有人可评论"
     }
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(*await gen_asyncio_get_param("api.steampowered.com", f"/ISteamUser/GetPlayerSummaries/v2/?key={self.API_KEY}&steamids={steamid}"))
+        async with httpx.AsyncClient(timeout=15, transport=gen_transport()) as client:
+            url, headers = await gen_asyncio_get_param(
+                "api.steampowered.com",
+                f"/ISteamUser/GetPlayerSummaries/v2/?key={self.API_KEY}&steamids={steamid}"
+            )
+            resp = await client.get(url, headers=headers)
             if resp.status_code != 200:
                 yield event.plain_result(f"API请求失败: HTTP {resp.status_code}")
                 return

@@ -12,7 +12,7 @@ import random
 from .openbox import handle_openbox  # 新增导入
 from .game_log import GameLogManager, handle_steam_log  # 新增导入
 from .steam_list import handle_steam_list  # 新增导入
-from .steam_api_util import gen_asyncio_get_param  # 新增导入
+from .steam_api_util import gen_asyncio_get_param, gen_transport  # 新增导入
 
 @register(
     "steam_status_monitor",
@@ -77,9 +77,13 @@ class SteamStatusMonitor(Star):
         retry = retry if retry is not None else self.RETRY_TIMES
         for attempt in range(retry):
             logger.info(f"正在查询 SteamID: {steam_id}，第{attempt+1}次尝试")  # 改为 info
-            async with httpx.AsyncClient(timeout=15) as client:
+            async with httpx.AsyncClient(timeout=15, transport=gen_transport()) as client:
                 try:
-                    resp = await client.get(*await gen_asyncio_get_param("api.steampowered.com", f"/ISteamUser/GetPlayerSummaries/v2/?key={self.API_KEY}&steamids={steam_id}"))
+                    url, headers = await gen_asyncio_get_param(
+                        "api.steampowered.com",
+                        f"/ISteamUser/GetPlayerSummaries/v2/?key={self.API_KEY}&steamids={steam_id}"
+                    )
+                    resp = await client.get(url, headers=headers)
                     if resp.status_code != 200:
                         raise Exception(f"HTTP {resp.status_code}")
                     try:
@@ -116,10 +120,11 @@ class SteamStatusMonitor(Star):
             return self._game_name_cache[gid]
         try:
             # 优先查中文名（l=schinese），再查英文名（l=en）
-            async with httpx.AsyncClient(timeout=10) as client:
+            async with httpx.AsyncClient(timeout=10, transport=gen_transport()) as client:
                 # 查中文名
-                resp_zh = await client.get(*await gen_asyncio_get_param("store.steampowered.com",
-                                             f"/api/appdetails?appids={gid}&l=schinese"))
+                url, headers = await gen_asyncio_get_param("store.steampowered.com",
+                                             f"/api/appdetails?appids={gid}&l=schinese")
+                resp_zh = await client.get(url, headers=headers)
                 data_zh = resp_zh.json()
                 info_zh = data_zh.get(gid, {}).get("data", {})
                 name_zh = info_zh.get("name")
@@ -127,8 +132,9 @@ class SteamStatusMonitor(Star):
                     self._game_name_cache[gid] = name_zh
                     return name_zh
                 # 查英文名
-                resp_en = await client.get(*await gen_asyncio_get_param("store.steampowered.com",
-                                                                        f"/api/appdetails?appids={gid}&l=en"))
+                url, headers = await gen_asyncio_get_param("store.steampowered.com",
+                                            f"/api/appdetails?appids={gid}&l=en")
+                resp_en = await client.get(url, headers=headers)
                 data_en = resp_en.json()
                 info_en = data_en.get(gid, {}).get("data", {})
                 name_en = info_en.get("name")
